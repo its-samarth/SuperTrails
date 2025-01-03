@@ -11,29 +11,29 @@ import MapScreen from './src/screens/MapScreen';
 import { RootStackParamList } from './src/navigation/types';
 const Stack = createStackNavigator<RootStackParamList>();
 
+
+
 const App: React.FC = () => {
+  
   return (
     <Provider store={store}>
       <NavigationContainer>
         <Stack.Navigator>
         <Stack.Screen 
+            name="AddressList" 
+            component={AddressList} 
+            options={{ title: 'My Addresses' }} 
+          /> 
+        <Stack.Screen 
             name="MapScreen" 
             component={MapScreen} 
             options={{ title: 'Select Location' }} 
           />
-        {/* <Stack.Screen 
+        <Stack.Screen 
             name="AddressForm" 
             component={AddressForm} 
             options={{ title: 'Add Address' }} 
           />
-          <Stack.Screen 
-            name="AddressList" 
-            component={AddressList} 
-            options={{ title: 'My Addresses' }} 
-          />  */}
-          
-          
-          
         </Stack.Navigator>
       </NavigationContainer>
     </Provider>

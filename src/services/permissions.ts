@@ -24,22 +24,44 @@ import { Coordinates } from '../types/address';
     }
   };
   
-  export const getCurrentLocation = (): Promise<Coordinates> => {
-    return new Promise((resolve, reject) => {
-      Geolocation.getCurrentPosition(
-        (position) => {
-          resolve({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            latitudeDelta: 0.0922,
-            longitudeDelta: 0.0421,
-          });
-        },
-        (error) => {
-          reject(error);
-        },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
-      );
-    });
-  };
+  
+export const getCurrentLocation = (): Promise<Coordinates> => {
+  return new Promise((resolve, reject) => {
+    Geolocation.getCurrentPosition(
+      (position) => {
+        // Resolve the promise with the current location details
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          latitudeDelta: 0.0922, // Default zoom level for the map
+          longitudeDelta: 0.0421, // Default zoom level for the map
+        });
+      },
+      (error) => {
+        // Log the error for debugging purposes
+        console.error('Error fetching current location:', error);
+
+        // Provide user-friendly error messages based on the error code
+        switch (error.code) {
+          case 1: // PERMISSION_DENIED
+            reject(new Error('Location permission is denied. Please enable it in your device settings.'));
+            break;
+          case 2: // POSITION_UNAVAILABLE
+            reject(new Error('Unable to determine your location. Please try again.'));
+            break;
+          case 3: // TIMEOUT
+            reject(new Error('Location request timed out. Please ensure your device has a stable connection.'));
+            break;
+          default:
+            reject(new Error('An unknown error occurred while fetching your location.'));
+        }
+      },
+      {
+        enableHighAccuracy: false, // Use GPS for higher accuracy
+        timeout: 15000, // Timeout after 15 seconds
+        maximumAge: 10000, // Cache location data for up to 10 seconds
+      }
+    );
+  });
+};
   

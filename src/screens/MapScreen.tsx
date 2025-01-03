@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, StyleSheet, Platform, Image, Text, Alert, Button, ActivityIndicator } from 'react-native';
 import MapView, { Region } from 'react-native-maps';
 import { check, request, PERMISSIONS, RESULTS } from 'react-native-permissions';
@@ -10,30 +10,54 @@ import AddressFooter from '../components/AddressFooter';
 import { getAddressFromCoordinates } from '../services/geocoding';
 import { AddressDetails, Coordinates } from '../types/address';
 import { getCurrentLocation } from '../services/permissions';
-import { useNavigation } from '@react-navigation/native';
+import { RouteProp } from '@react-navigation/native';
+
+const LOCATION_TIMEOUT = 15000; // 15 seconds
+const GEOCODING_TIMEOUT = 10000; // 10 seconds
 
 type MapScreenNavigationProp = StackNavigationProp<RootStackParamList, 'MapScreen'>;
 
 interface MapScreenProps {
   navigation: MapScreenNavigationProp;
+  route: RouteProp<RootStackParamList, 'MapScreen'>;  
 }
 
-const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
+const MapScreen: React.FC<MapScreenProps> = ({ navigation, route  }) => {
   const [region, setRegion] = useState<Region | null>(null);
   const [address, setAddress] = useState<AddressDetails | null>(null);
   const [permissionBlocked, setPermissionBlocked] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [locationError, setLocationError] = useState<string | null>(null);
   const dispatch = useAppDispatch();
+  
+  // Refs for handling component unmounting and preventing state updates
+  const isMounted = useRef(true);
+  const geocodingDebounceTimeout = useRef<NodeJS.Timeout>();
+  const locationTimeout = useRef<NodeJS.Timeout>();
 
-  const checkLocationPermission = async (): Promise<boolean> => {
+  // Cleanup function
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+      if (geocodingDebounceTimeout.current) {
+        clearTimeout(geocodingDebounceTimeout.current);
+      }
+      if (locationTimeout.current) {
+        clearTimeout(locationTimeout.current);
+      }
+    };
+  }, []);
+
+  const checkLocationPermission = useCallback(async (): Promise<boolean> => {
     const permission = Platform.select({
       ios: PERMISSIONS.IOS.LOCATION_WHEN_IN_USE,
       android: PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION,
     });
 
     if (!permission) {
-      setLocationError('Location permission not available for this platform');
+      if (isMounted.current) {
+        setLocationError('Location permission not available for this platform');
+      }
       return false;
     }
 
@@ -46,7 +70,9 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
           return permissionResult === RESULTS.GRANTED;
         
         case RESULTS.BLOCKED:
-          setPermissionBlocked(true);
+          if (isMounted.current) {
+            setPermissionBlocked(true);
+          }
           return false;
         
         case RESULTS.GRANTED:
@@ -57,60 +83,112 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
       }
     } catch (error) {
       console.error('Error checking permission:', error);
-      setLocationError('Failed to check location permissions');
+      if (isMounted.current) {
+        setLocationError('Failed to check location permissions');
+      }
       return false;
     }
+  }, []);
+
+  const fetchAddressWithTimeout = async (latitude: number, longitude: number): Promise<AddressDetails> => {
+    return Promise.race([
+      getAddressFromCoordinates(latitude, longitude),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Geocoding timeout')), GEOCODING_TIMEOUT)
+      )
+    ]) as Promise<AddressDetails>;
   };
 
-  const fetchLocation = async (): Promise<void> => {
+  const fetchLocation = useCallback(async (): Promise<void> => {
+    if (!isMounted.current) return;
+    
     setIsLoading(true);
     setLocationError(null);
     
     try {
-      const currentLocation = await getCurrentLocation();
+      const locationPromise = getCurrentLocation();
+      
+      // Set up timeout for location fetch
+      const timeoutPromise = new Promise((_, reject) => {
+        locationTimeout.current = setTimeout(
+          () => reject(new Error('Location fetch timeout')),
+          LOCATION_TIMEOUT
+        );
+      });
+
+      const currentLocation = await Promise.race([locationPromise, timeoutPromise]) as Region;
+      console.log(currentLocation);
+      
+      
+      if (!isMounted.current) return;
+      
       setRegion(currentLocation);
       
-      const addressData = await getAddressFromCoordinates(
-        currentLocation.latitude,
-        currentLocation.longitude
-      );
-      setAddress(addressData);
+      try {
+        const addressData = await fetchAddressWithTimeout(
+          currentLocation.latitude,
+          currentLocation.longitude
+        );
+        console.log(addressData);
+        
+        if (isMounted.current) {
+          setAddress(addressData);
+        }
+      } catch (error) {
+        console.error('Error fetching address:', error);
+        if (isMounted.current) {
+          Alert.alert('Warning', 'Located you successfully, but failed to fetch address details');
+        }
+      }
     } catch (error) {
       console.error('Error getting location:', error);
-      setLocationError('Failed to get current location');
+      if (isMounted.current) {
+        setLocationError(
+          (error as Error).message === 'Location fetch timeout'
+            ? 'Location request timed out. Please try again.'
+            : 'Failed to get current location'
+        );
+      }
     } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    const initializeLocation = async () => {
-      const hasPermission = await checkLocationPermission();
-      if (hasPermission) {
-        await fetchLocation();
-      } else {
+      if (isMounted.current) {
         setIsLoading(false);
       }
-    };
-
-    initializeLocation();
+      if (locationTimeout.current) {
+        clearTimeout(locationTimeout.current);
+      }
+    }
   }, []);
 
-  const onRegionChangeComplete = async (newRegion: Region): Promise<void> => {
+  const onRegionChangeComplete = useCallback(async (newRegion: Region): Promise<void> => {
+    if (!isMounted.current) return;
+    
     setRegion(newRegion);
-    try {
-      const addressData = await getAddressFromCoordinates(
-        newRegion.latitude,
-        newRegion.longitude
-      );
-      setAddress(addressData);
-    } catch (error) {
-      console.error('Error fetching address:', error);
-      Alert.alert('Error', 'Failed to  fetch address for this location');
-    }
-  };
 
-  const confirmLocation = (): void => {
+    // Clear any existing debounce timeout
+    if (geocodingDebounceTimeout.current) {
+      clearTimeout(geocodingDebounceTimeout.current);
+    }
+
+    // Debounce the address fetch to prevent too many API calls
+    geocodingDebounceTimeout.current = setTimeout(async () => {
+      try {
+        const addressData = await fetchAddressWithTimeout(
+          newRegion.latitude,
+          newRegion.longitude
+        );
+        if (isMounted.current) {
+          setAddress(addressData);
+        }
+      } catch (error) {
+        console.error('Error fetching address:', error);
+        if (isMounted.current) {
+          Alert.alert('Error', 'Failed to fetch address for this location');
+        }
+      }
+    }, 500); // 500ms debounce
+  }, []);
+
+  const confirmLocation = useCallback((): void => {
     if (address && region) {
       dispatch(setLocation({ 
         coordinates: {
@@ -121,15 +199,60 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
       }));
       navigation.navigate('AddressForm', { editMode: false, addressId: undefined });
     }
-  };
+  }, [address, region, dispatch, navigation]);
 
-  const requestPermissionAgain = async () => {
+  const requestPermissionAgain = useCallback(async () => {
+    if (!isMounted.current) return;
+    
     setPermissionBlocked(false);
     const permissionGranted = await checkLocationPermission();
     if (permissionGranted) {
       await fetchLocation();
     }
-  };
+  }, [checkLocationPermission, fetchLocation]);
+
+  useEffect(() => {
+    const handleInitialLocation = async () => {
+      if (route.params?.location) {
+        // Use the location passed from AddressForm
+        const providedLocation: Region = {
+          latitude: route.params.location.lat,
+          longitude: route.params.location.lng,
+          latitudeDelta: 0.0922,
+          longitudeDelta: 0.0421,
+        };
+        
+        setRegion(providedLocation);
+        setIsLoading(false);
+
+        // Fetch address for the provided location
+        try {
+          const addressData = await fetchAddressWithTimeout(
+            providedLocation.latitude,
+            providedLocation.longitude
+          );
+          if (isMounted.current) {
+            setAddress(addressData);
+          }
+        } catch (error) {
+          console.error('Error fetching address:', error);
+          if (isMounted.current) {
+            Alert.alert('Error', 'Failed to fetch address for this location');
+          }
+        }
+      } else {
+        // No location provided, fetch current location
+        const hasPermission = await checkLocationPermission();
+        if (hasPermission) {
+          await fetchLocation();
+        } else if (isMounted.current) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    handleInitialLocation();
+  }, [checkLocationPermission, fetchLocation]);
 
   if (isLoading) {
     return (
@@ -166,8 +289,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
         onRegionChangeComplete={onRegionChangeComplete}
         showsUserLocation
         showsMyLocationButton
-      >
-      </MapView>
+      />
       
       <View style={styles.markerFixed}>
         <Image
@@ -179,7 +301,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation }) => {
       {permissionBlocked && (
         <View style={styles.permissionContainer}>
           <Text style={styles.permissionText}>
-            Location access has been blocked.  Please enable it to proceed.
+            Location access has been blocked. Please enable it in your device settings to proceed.
           </Text>
           <Button title="Enable Location Access" onPress={requestPermissionAgain} />
         </View>
@@ -221,6 +343,8 @@ const styles = StyleSheet.create({
   permissionText: {
     color: 'white',
     marginBottom: 8,
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
   container: {
     flex: 1,

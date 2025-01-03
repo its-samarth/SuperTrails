@@ -1,11 +1,12 @@
 import React from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Platform, Alert } from 'react-native';
 import { useAppSelector } from '../hooks/useAppSelector';
 import { useAppDispatch } from '../hooks/useAppDispatch';
 import { deleteAddress, setDefaultAddress } from '../store/addressSlice';
 import { Address } from '../types/address';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../navigation/types';
+import { check, PERMISSIONS, request, RESULTS } from 'react-native-permissions';
 
 type AddressListNavigationProp = StackNavigationProp<RootStackParamList, 'AddressList'>;
 
@@ -16,6 +17,49 @@ interface AddressListProps {
 const AddressList: React.FC<AddressListProps> = ({ navigation }) => {
   const addresses = useAppSelector(state => state.address.addresses);
   const dispatch = useAppDispatch();
+
+
+
+
+
+  const checkAndRequestLocationPermission = async (): Promise<boolean> => {
+    const permission = Platform.select({
+      ios: PERMISSIONS.IOS.LOCATION_WHEN_IN_USE,
+      android: PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION,
+    });
+
+    if (!permission) {
+      Alert.alert('Error', 'Location permission is not available on this platform.');
+      return false;
+    }
+
+    try {
+      const result = await check(permission);
+
+      switch (result) {
+        case RESULTS.GRANTED:
+          return true;
+        case RESULTS.DENIED:
+          const requestResult = await request(permission);
+          return requestResult === RESULTS.GRANTED;
+        case RESULTS.BLOCKED:
+          Alert.alert(
+            'Permission Blocked',
+            'Location permission is blocked. Please enable it in your device settings to proceed.'
+          );
+          return false;
+        default:
+          return false;
+      }
+    } catch (error) {
+      console.error('Error checking location permission:', error);
+      Alert.alert('Error', 'Failed to check location permission.');
+      return false;
+    }
+  };
+
+  
+
 
   const renderAddressItem = ({ item }: { item: Address }) => (
     <View style={styles.addressCard}>
@@ -75,7 +119,18 @@ const AddressList: React.FC<AddressListProps> = ({ navigation }) => {
       />
       <TouchableOpacity 
         style={styles.addButton}
-        onPress={() => navigation.navigate('AddressForm', { editMode: false })}
+        onPress={async () => {
+          const hasPermission = await checkAndRequestLocationPermission();
+          if (hasPermission) {
+            // Navigate to MapScreen if permission is granted
+            navigation.navigate('MapScreen', { location: undefined });
+          } else {
+            // Navigate to AddressForm if permission is not granted
+            navigation.navigate('AddressForm', {
+              editMode: false,  // Indicate that it's a new address
+            });
+          }
+        }}
       >
         <Text style={styles.addButtonText}>Add New Address</Text>
       </TouchableOpacity>

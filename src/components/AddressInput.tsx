@@ -6,6 +6,7 @@ interface AddressInputProps {
   formData: Omit<Address, 'id'>;
   setFormData: React.Dispatch<React.SetStateAction<Omit<Address, 'id'>>>;
   onSubmit: () => void;
+  isEditMode?: boolean;
 }
 
 const addressTypes: AddressType[] = ['Home', 'Office', 'Other'];
