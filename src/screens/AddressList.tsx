@@ -127,7 +127,7 @@ const AddressList: React.FC<AddressListProps> = ({ navigation }) => {
           } else {
             // Navigate to AddressForm if permission is not granted
             navigation.navigate('AddressForm', {
-              editMode: false,  // Indicate that it's a new address
+              editMode: false, 
             });
           }
         }}

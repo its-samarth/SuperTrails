@@ -117,7 +117,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, route  }) => {
       });
 
       const currentLocation = await Promise.race([locationPromise, timeoutPromise]) as Region;
-      console.log(currentLocation);
+    
       
       
       if (!isMounted.current) return;
@@ -129,7 +129,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, route  }) => {
           currentLocation.latitude,
           currentLocation.longitude
         );
-        console.log(addressData);
+
         
         if (isMounted.current) {
           setAddress(addressData);

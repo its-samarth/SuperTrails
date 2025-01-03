@@ -29,12 +29,12 @@ export const getCurrentLocation = (): Promise<Coordinates> => {
   return new Promise((resolve, reject) => {
     Geolocation.getCurrentPosition(
       (position) => {
-        // Resolve the promise with the current location details
+      
         resolve({
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
-          latitudeDelta: 0.0922, // Default zoom level for the map
-          longitudeDelta: 0.0421, // Default zoom level for the map
+          latitudeDelta: 0.0922, 
+          longitudeDelta: 0.0421, 
         });
       },
       (error) => {
