@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, StyleSheet, Platform, Image, Text, Alert, Button, ActivityIndicator } from 'react-native';
-import MapView, { Region } from 'react-native-maps';
+import MapView, { Region, Marker } from 'react-native-maps';
 import { check, request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../navigation/types';
@@ -159,34 +159,27 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, route  }) => {
     }
   }, []);
 
-  const onRegionChangeComplete = useCallback(async (newRegion: Region): Promise<void> => {
-    if (!isMounted.current) return;
-    
+  const onRegionChangeComplete = useCallback((newRegion: Region): void => {
     setRegion(newRegion);
-
-    // Clear any existing debounce timeout
+  
+    // Cancel previous timeout and throttle address fetch
     if (geocodingDebounceTimeout.current) {
       clearTimeout(geocodingDebounceTimeout.current);
     }
-
-    // Debounce the address fetch to prevent too many API calls
+  
     geocodingDebounceTimeout.current = setTimeout(async () => {
       try {
         const addressData = await fetchAddressWithTimeout(
           newRegion.latitude,
           newRegion.longitude
         );
-        if (isMounted.current) {
-          setAddress(addressData);
-        }
+        setAddress(addressData);
       } catch (error) {
         console.error('Error fetching address:', error);
-        if (isMounted.current) {
-          Alert.alert('Error', 'Failed to fetch address for this location');
-        }
       }
-    }, 500); // 500ms debounce
+    }, 300); // Reduce debounce time to 300ms
   }, []);
+  
 
   const confirmLocation = useCallback((): void => {
     if (address && region) {
@@ -197,7 +190,7 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, route  }) => {
         } as Coordinates,
         address 
       }));
-      navigation.navigate('AddressForm', { editMode: false, addressId: undefined });
+      navigation.replace('AddressForm', { editMode: false, addressId: undefined });
     }
   }, [address, region, dispatch, navigation]);
 
@@ -284,19 +277,39 @@ const MapScreen: React.FC<MapScreenProps> = ({ navigation, route  }) => {
   return (
     <View style={styles.container}>
       <MapView
-        style={styles.map}
-        region={region}
-        onRegionChangeComplete={onRegionChangeComplete}
-        showsUserLocation
-        showsMyLocationButton
-      />
-      
-      <View style={styles.markerFixed}>
-        <Image
-          source={require('../../assets/marker.png')}
-          style={styles.marker}
-        />
-      </View>
+  style={styles.map}
+  region={region}
+  onRegionChangeComplete={onRegionChangeComplete}
+  showsUserLocation
+  showsMyLocationButton
+>
+<Marker
+  coordinate={{
+    latitude: region.latitude,
+    longitude: region.longitude,
+  }}
+  draggable
+  onDragStart={() => {
+    if (geocodingDebounceTimeout.current) clearTimeout(geocodingDebounceTimeout.current);
+  }}
+  onDragEnd={(e) => {
+    const newCoords = e.nativeEvent.coordinate;
+    setRegion((prev) => prev ? ({
+      ...prev,
+      latitude: newCoords.latitude,
+      longitude: newCoords.longitude,
+      latitudeDelta: prev.latitudeDelta,
+      longitudeDelta: prev.longitudeDelta,
+    }) : null);
+    // Fetch address immediately after drag ends
+    onRegionChangeComplete({
+      ...region,
+      latitude: newCoords.latitude,
+      longitude: newCoords.longitude,
+    });
+  }}
+/>
+</MapView>
 
       {permissionBlocked && (
         <View style={styles.permissionContainer}>

@@ -110,7 +110,8 @@ const AddressForm: React.FC<AddressFormProps> = ({ navigation, route }) => {
     } else {
       dispatch(addAddress(addressData));
     }
-    navigation.navigate('AddressList');
+    navigation.popToTop(); // Clears the stack to the root
+    navigation.replace('AddressList');
   };
 
   return (
@@ -144,7 +145,8 @@ const AddressForm: React.FC<AddressFormProps> = ({ navigation, route }) => {
 
                 // Navigate to map with the selected location
                 if (details.geometry?.location) {
-                  navigation.navigate('MapScreen', {
+                  
+                  navigation.replace('MapScreen', {
                     location: {
                       lat: details.geometry.location.lat,
                       lng: details.geometry.location.lng,
