@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Platform, Alert } from 'react-native';
 import { useAppSelector } from '../hooks/useAppSelector';
 import { useAppDispatch } from '../hooks/useAppDispatch';
@@ -7,6 +7,7 @@ import { Address } from '../types/address';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../navigation/types';
 import { check, PERMISSIONS, request, RESULTS } from 'react-native-permissions';
+import DeviceInfo from 'react-native-device-info';
 
 type AddressListNavigationProp = StackNavigationProp<RootStackParamList, 'AddressList'>;
 
@@ -17,46 +18,62 @@ interface AddressListProps {
 const AddressList: React.FC<AddressListProps> = ({ navigation }) => {
   const addresses = useAppSelector(state => state.address.addresses);
   const dispatch = useAppDispatch();
+  const [isLocationEnabled,setIsLocationEnabled]=useState(false)
+  const [hasLocationPermission, setHasLocationPermission] = useState(false);
 
+  useEffect(() => {
+    let previousStatus = isLocationEnabled;
 
+    const checkLocationAndPermissionStatus = async () => {
+      try {
+        // Check if location is enabled
+        const currentStatus = DeviceInfo.isLocationEnabledSync();
+        if (currentStatus !== previousStatus) {
+          setIsLocationEnabled(currentStatus);
+          previousStatus = currentStatus;
+        }
 
+        // Check and request location permission
+        const permission = Platform.select({
+          ios: PERMISSIONS.IOS.LOCATION_WHEN_IN_USE,
+          android: PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION,
+        });
 
+        if (permission) {
+          const result = await check(permission);
 
-  const checkAndRequestLocationPermission = async (): Promise<boolean> => {
-    const permission = Platform.select({
-      ios: PERMISSIONS.IOS.LOCATION_WHEN_IN_USE,
-      android: PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION,
-    });
-
-    if (!permission) {
-      Alert.alert('Error', 'Location permission is not available on this platform.');
-      return false;
-    }
-
-    try {
-      const result = await check(permission);
-
-      switch (result) {
-        case RESULTS.GRANTED:
-          return true;
-        case RESULTS.DENIED:
-          const requestResult = await request(permission);
-          return requestResult === RESULTS.GRANTED;
-        case RESULTS.BLOCKED:
-          Alert.alert(
-            'Permission Blocked',
-            'Location permission is blocked. Please enable it in your device settings to proceed.'
-          );
-          return false;
-        default:
-          return false;
+          switch (result) {
+            case RESULTS.GRANTED:
+              setHasLocationPermission(true);
+              break;
+            case RESULTS.DENIED:
+              const requestResult = await request(permission);
+              setHasLocationPermission(requestResult === RESULTS.GRANTED);
+              break;
+            case RESULTS.BLOCKED:
+              setHasLocationPermission(false);
+              Alert.alert(
+                'Permission Blocked',
+                'Location permission is blocked. Please enable it in your device settings to proceed.'
+              );
+              break;
+            default:
+              setHasLocationPermission(false);
+              break;
+          }
+        } else {
+          Alert.alert('Error', 'Location permission is not available on this platform.');
+        }
+      } catch (error) {
+        console.error('Error checking location or permission status:', error);
       }
-    } catch (error) {
-      console.error('Error checking location permission:', error);
-      Alert.alert('Error', 'Failed to check location permission.');
-      return false;
-    }
-  };
+    };
+
+    const interval = setInterval(checkLocationAndPermissionStatus, 1000); // Check every second
+
+    // Cleanup the interval on unmount
+    return () => clearInterval(interval);
+  }, []);
 
   
 
@@ -110,7 +127,24 @@ const AddressList: React.FC<AddressListProps> = ({ navigation }) => {
   );
 
   return (
+    <View style={{ flex: 1, padding: 16 }}>
+       <View style={styles.statusContainer}>
+  <View style={styles.statusRow}>
+    <Text style={styles.statusLabel}>Location:</Text>
+    <Text style={[styles.statusValue, isLocationEnabled ? styles.statusEnabled : styles.statusDisabled]}>
+      {isLocationEnabled ? 'Enabled' : 'Disabled'}
+    </Text>
+  </View>
+  <View style={styles.statusRow}>
+    <Text style={styles.statusLabel}>Permission:</Text>
+    <Text style={[styles.statusValue, hasLocationPermission ? styles.statusEnabled : styles.statusDisabled]}>
+      {hasLocationPermission ? 'Granted' : 'Not Granted'}
+    </Text>
+  </View>
+</View>
+    
     <View style={styles.container}>
+      
       <FlatList
         data={addresses}
         renderItem={renderAddressItem}
@@ -120,8 +154,8 @@ const AddressList: React.FC<AddressListProps> = ({ navigation }) => {
       <TouchableOpacity 
         style={styles.addButton}
         onPress={async () => {
-          const hasPermission = await checkAndRequestLocationPermission();
-          if (hasPermission) {
+          
+          if (hasLocationPermission && isLocationEnabled) {
             // Navigate to MapScreen if permission is granted
             navigation.navigate('MapScreen', { location: undefined });
           } else {
@@ -132,8 +166,11 @@ const AddressList: React.FC<AddressListProps> = ({ navigation }) => {
           }
         }}
       >
+       
+       
         <Text style={styles.addButtonText}>Add New Address</Text>
       </TouchableOpacity>
+    </View>
     </View>
   );
 };
@@ -220,6 +257,38 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  statusContainer: {
+    padding: 16,
+    marginVertical: 20,
+    borderRadius: 8,
+    backgroundColor: '#f9f9f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  statusLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+  },
+  statusValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  statusEnabled: {
+    color: '#4caf50', // Green for enabled or granted
+  },
+  statusDisabled: {
+    color: '#f44336', // Red for disabled or not granted
   },
 });
 
