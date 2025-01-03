@@ -3,12 +3,13 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Provider } from 'react-redux';
-import { store } from './src/store';
+import { store,persistor  } from './src/store';
 
 import AddressList from './src/screens/AddressList';
 import AddressForm from './src/screens/AddressForm';
 import MapScreen from './src/screens/MapScreen';
 import { RootStackParamList } from './src/navigation/types';
+import { PersistGate } from 'redux-persist/integration/react';
 const Stack = createStackNavigator<RootStackParamList>();
 
 
@@ -17,6 +18,7 @@ const App: React.FC = () => {
   
   return (
     <Provider store={store}>
+      <PersistGate loading={null} persistor={persistor}></PersistGate>
       <NavigationContainer>
         <Stack.Navigator>
         <Stack.Screen 
